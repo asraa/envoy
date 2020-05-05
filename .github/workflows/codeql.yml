@@ -23,10 +23,9 @@ jobs:
       with:
          languages: cpp
 
-    # ℹ️ Command-line programs to run using the OS shell.
-    # 📚 https://git.io/JvXDl
-
-    - run: |
+    - name: Install deps
+      shell: bash
+      run: |
        wget -O /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
        chmod +x /usr/local/bin/bazel
        apt-get install libtool cmake automake autoconf make ninja-build curl unzip virtualenv
@@ -38,6 +37,10 @@ jobs:
        export CLANG_TOOLCHAIN=clang9
        export CC=$CLANG_TOOLCHAIN/bin/clang
        export CXX=$CLANG_TOOLCHAIN/bin/clang++
+
+    - name: Build
+      shell: bash
+      run: |
        /usr/local/bin/bazel build //source/exe:envoy-static
 
     - name: Perform CodeQL Analysis
