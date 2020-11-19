@@ -4,6 +4,7 @@ load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 # DO NOT LOAD THIS FILE. Load envoy_build_system.bzl instead.
 # Envoy test targets. This includes both test library and test binary targets.
 load("@bazel_tools//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
+load("@bazel_rules_fuzzing//fuzzing:cc_deps.bzl", "cc_fuzz_test")
 load(":envoy_binary.bzl", "envoy_cc_binary")
 load(":envoy_library.bzl", "tcmalloc_external_deps")
 load(
@@ -150,6 +151,14 @@ def envoy_cc_fuzz_test(
         testonly = 1,
         deps = [":" + test_lib_name],
         tags = ["manual"] + tags,
+    )
+
+    cc_fuzz_test(
+        name = name + "_experimental",
+        corpus = tar_src,
+        deps = [":" + test_lib_name],
+        size = size,
+        tags = ["fuzz_target"] + tags,
     )
 
 # Envoy C++ test targets should be specified with this function.
