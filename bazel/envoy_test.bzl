@@ -4,7 +4,7 @@ load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 # DO NOT LOAD THIS FILE. Load envoy_build_system.bzl instead.
 # Envoy test targets. This includes both test library and test binary targets.
 load("@bazel_tools//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
-load("@bazel_rules_fuzzing//fuzzing:cc_deps.bzl", "cc_fuzz_test")
+load("@rules_fuzzing//fuzzing:cc_deps.bzl", "cc_fuzz_test")
 load(":envoy_binary.bzl", "envoy_cc_binary")
 load(":envoy_library.bzl", "tcmalloc_external_deps")
 load(
@@ -109,35 +109,35 @@ def envoy_cc_fuzz_test(
         tags = tags,
         **kwargs
     )
-    cc_test(
-        name = name,
-        copts = fuzz_copts + envoy_copts("@envoy", test = True),
-        linkopts = _envoy_test_linkopts() + select({
-            "@envoy//bazel:libfuzzer": ["-fsanitize=fuzzer"],
-            "//conditions:default": [],
-        }),
-        linkstatic = envoy_linkstatic(),
-        args = select({
-            "@envoy//bazel:libfuzzer_coverage": ["$(locations %s)" % corpus_name],
-            "@envoy//bazel:libfuzzer": [],
-            "//conditions:default": ["$(locations %s)" % corpus_name],
-        }),
-        data = [corpus_name],
-        # No fuzzing on macOS or Windows
-        deps = select({
-            "@envoy//bazel:apple": [repository + "//test:dummy_main"],
-            "@envoy//bazel:windows_x86_64": [repository + "//test:dummy_main"],
-            "@envoy//bazel:libfuzzer": [
-                ":" + test_lib_name,
-            ],
-            "//conditions:default": [
-                ":" + test_lib_name,
-                repository + "//test/fuzz:main",
-            ],
-        }),
-        size = size,
-        tags = ["fuzz_target"] + tags,
-    )
+    # cc_test(
+    #     name = name,
+    #     copts = fuzz_copts + envoy_copts("@envoy", test = True),
+    #     linkopts = _envoy_test_linkopts() + select({
+    #         "@envoy//bazel:libfuzzer": ["-fsanitize=fuzzer"],
+    #         "//conditions:default": [],
+    #     }),
+    #     linkstatic = envoy_linkstatic(),
+    #     args = select({
+    #         "@envoy//bazel:libfuzzer_coverage": ["$(locations %s)" % corpus_name],
+    #         "@envoy//bazel:libfuzzer": [],
+    #         "//conditions:default": ["$(locations %s)" % corpus_name],
+    #     }),
+    #     data = [corpus_name],
+    #     # No fuzzing on macOS or Windows
+    #     deps = select({
+    #         "@envoy//bazel:apple": [repository + "//test:dummy_main"],
+    #         "@envoy//bazel:windows_x86_64": [repository + "//test:dummy_main"],
+    #         "@envoy//bazel:libfuzzer": [
+    #             ":" + test_lib_name,
+    #         ],
+    #         "//conditions:default": [
+    #             ":" + test_lib_name,
+    #             repository + "//test/fuzz:main",
+    #         ],
+    #     }),
+    #     size = size,
+    #     tags = ["fuzz_target"] + tags,
+    # )
 
     # This target exists only for
     # https://github.com/google/oss-fuzz/blob/master/projects/envoy/build.sh. It won't yield

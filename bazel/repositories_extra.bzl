@@ -8,6 +8,11 @@ def _python_deps():
     pip_repositories()
 
     pip3_import(
+        name = "fuzzing_py_deps",
+        requirements = "@rules_fuzzing//fuzzing:requirements.txt",
+    )
+
+    pip3_import(
         name = "config_validation_pip3",
         requirements = "@envoy//tools/config_validation:requirements.txt",
         extra_pip_args = ["--require-hashes"],
@@ -96,10 +101,6 @@ def _python_deps():
         # version = "1.15.0",
         # release_date = "2020-05-21"
         # use_category = ["test"],
-    )
-    pip3_import(
-        name = "fuzzing_py_deps",
-        requirements = "@bazel_rules_fuzzing//fuzzing:requirements.txt",
     )
 
 # Envoy deps that rely on a first stage of dependency loading in envoy_dependencies().

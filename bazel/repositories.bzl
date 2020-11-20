@@ -168,7 +168,12 @@ def envoy_dependencies(skip_targets = []):
     external_http_archive("com_github_google_flatbuffers")
     external_http_archive("bazel_toolchains")
     external_http_archive("bazel_compdb")
-    external_http_archive("bazel_rules_fuzzing")
+
+    # external_http_archive("bazel_rules_fuzzing")
+    native.local_repository(
+        name = "rules_fuzzing",
+        path = "../rules_fuzzing",
+    )
     external_http_archive("envoy_build_tools")
     external_http_archive("rules_cc")
 
