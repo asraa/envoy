@@ -99,7 +99,7 @@ def _python_deps():
     )
     pip3_import(
         name = "fuzzing_py_deps",
-        requirements = "@bazel_rules_fuzzing//fuzzing:requirements.txt",
+        requirements = "@rules_fuzzing//fuzzing:requirements.txt",
     )
 
 # Envoy deps that rely on a first stage of dependency loading in envoy_dependencies().

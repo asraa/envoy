@@ -294,6 +294,16 @@ build:plain-fuzzer --define ENVOY_CONFIG_ASAN=1
 build:plain-fuzzer --copt=-fsanitize=fuzzer-no-link
 build:plain-fuzzer --linkopt=-fsanitize=fuzzer-no-link
 
+# Common fuzzing flags. To be only used by other configs.
+build:_fuzzer_common --config=clang
+build:_fuzzer_common --copt=-DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+
+# Flags for Clang with ASAN and libfuzzer.
+build:asan-libfuzzer --config=_fuzzer_common
+build:asan-libfuzzer --linkopt=-fsanitize=fuzzer,address
+build:asan-libfuzzer --copt=-fsanitize=fuzzer,address
+build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:libfuzzer
+
 # Compile database generation config
 build:compdb --build_tag_filters=-nocompdb
 
