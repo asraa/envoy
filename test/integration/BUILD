@@ -428,6 +428,20 @@ envoy_cc_test(
 )
 
 envoy_cc_test(
+    name = "router_integration_test",
+    srcs = [
+        "router_integration_test.cc",
+    ],
+    tags = ["fails_on_windows"],
+    deps = [
+        ":http_integration_lib",
+        "//source/common/api:api_lib",
+        "@envoy_api//envoy/extensions/filters/http/router/v3:pkg_cc_proto",
+        "@envoy_api//envoy/extensions/filters/network/http_connection_manager/v3:pkg_cc_proto",
+    ],
+)
+
+envoy_cc_test(
     name = "protocol_integration_test",
     srcs = [
         "protocol_integration_test.cc",
