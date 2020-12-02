@@ -288,12 +288,6 @@ build:asan-fuzzer --copt=-fno-omit-frame-pointer
 # Remove UBSAN halt_on_error to avoid crashing on protobuf errors.
 build:asan-fuzzer --test_env=UBSAN_OPTIONS=print_stacktrace=1
 
-build:asan-libfuzzer --action_env=CC=/opt/llvm/bin/clang
-build:asan-libfuzzer --action_env=CXX=/opt/llvm/bin/clang++
-build:asan-libfuzzer --linkopt=-fsanitize=fuzzer,address
-build:asan-libfuzzer --copt=-fsanitize=fuzzer,address
-build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:libfuzzer
-
 # Fuzzing without ASAN. This is useful for profiling fuzzers without any ASAN artifacts.
 build:plain-fuzzer --define=FUZZING_ENGINE=libfuzzer
 build:plain-fuzzer --define ENVOY_CONFIG_ASAN=1
