@@ -1,0 +1,469 @@
+diff --git a/bazel/external/llhttp.BUILD b/bazel/external/llhttp.BUILD
+new file mode 100644
+index 00000000000..9abdd525cea
+--- /dev/null
++++ b/bazel/external/llhttp.BUILD
+@@ -0,0 +1,15 @@
++
++licenses(["notice"])  # Apache 2
++
++cc_library(
++    name = "llhttp",
++    srcs = [
++        "src/api.c",
++        "src/http.c",
++        "src/llhttp.c",
++    ],
++    defines = ["LLHTTP_STRICT_MODE"],
++    hdrs = ["include/llhttp.h"],
++    includes = ["include"],
++    visibility = ["//visibility:public"],
++)
+diff --git a/bazel/repositories.bzl b/bazel/repositories.bzl
+index e1b65d3aadb..67ffb117229 100644
+--- a/bazel/repositories.bzl
++++ b/bazel/repositories.bzl
+@@ -143,6 +143,7 @@ def envoy_dependencies(skip_targets = []):
+     _com_github_moonjit_moonjit()
+     _com_github_nghttp2_nghttp2()
+     _com_github_nodejs_http_parser()
++    _com_github_nodejs_llhttp()
+     _com_github_tencent_rapidjson()
+     _com_google_absl()
+     _com_google_googletest()
+@@ -439,6 +440,16 @@ def _com_github_nodejs_http_parser():
+         actual = "@com_github_nodejs_http_parser//:http_parser",
+     )
+ 
++def _com_github_nodejs_llhttp():
++    external_http_archive(
++        name = "com_github_nodejs_llhttp",
++        build_file = "@envoy//bazel/external:llhttp.BUILD",
++    )
++    native.bind(
++        name = "llhttp",
++        actual = "@com_github_nodejs_llhttp//:llhttp",
++    )
++
+ def _com_google_googletest():
+     external_http_archive("com_google_googletest")
+     native.bind(
+diff --git a/bazel/repository_locations.bzl b/bazel/repository_locations.bzl
+index 95aa885b088..c5c0d253918 100644
+--- a/bazel/repository_locations.bzl
++++ b/bazel/repository_locations.bzl
+@@ -429,6 +429,18 @@ REPOSITORY_LOCATIONS_SPEC = dict(
+         release_date = "2020-07-10",
+         cpe = "cpe:2.3:a:nodejs:node.js:*",
+     ),
++    com_github_nodejs_llhttp = dict(
++        project_name = "llhttp",
++        project_desc = "Parser for HTTP messages written in C",
++        project_url = "https://github.com/nodejs/llhttp",
++        version = "3.0.0",
++        sha256 = "02931556e69f8d075edb5896127099e70a093c104a994a57b4d72c85b48d25b0",
++        strip_prefix = "llhttp-release-v{version}",
++        urls = ["https://github.com/nodejs/llhttp/archive/release/v{version}.tar.gz"],
++        use_category = ["dataplane_core"],
++        release_date = "2020-11-30",
++        cpe = "N/A",
++    ),
+     com_github_tencent_rapidjson = dict(
+         project_name = "RapidJSON",
+         project_desc = "Fast JSON parser/generator for C++",
+diff --git a/source/common/http/http1/BUILD b/source/common/http/http1/BUILD
+index 8c864eaca71..5933bce6378 100644
+--- a/source/common/http/http1/BUILD
++++ b/source/common/http/http1/BUILD
+@@ -28,7 +28,7 @@ envoy_cc_library(
+     name = "codec_lib",
+     srcs = ["codec_impl.cc"],
+     hdrs = ["codec_impl.h"],
+-    external_deps = ["http_parser"],
++    external_deps = ["llhttp"],
+     deps = [
+         ":codec_stats_lib",
+         ":header_formatter_lib",
+diff --git a/source/common/http/http1/codec_impl.cc b/source/common/http/http1/codec_impl.cc
+index f0ce0cfb5f8..b6a493e41ea 100644
+--- a/source/common/http/http1/codec_impl.cc
++++ b/source/common/http/http1/codec_impl.cc
+@@ -420,43 +420,47 @@ int ConnectionImpl::setAndCheckCallbackStatusOr(Envoy::StatusOr<int>&& statusor)
+   }
+ }
+ 
+-http_parser_settings ConnectionImpl::settings_{
+-    [](http_parser* parser) -> int {
++llhttp_settings_s ConnectionImpl::settings_{
++    [](llhttp_t* parser) -> int {
+       auto* conn_impl = static_cast<ConnectionImpl*>(parser->data);
+       auto status = conn_impl->onMessageBeginBase();
+       return conn_impl->setAndCheckCallbackStatus(std::move(status));
+     },
+-    [](http_parser* parser, const char* at, size_t length) -> int {
++    [](llhttp_t* parser, const char* at, size_t length) -> int {
+       auto* conn_impl = static_cast<ConnectionImpl*>(parser->data);
+       auto status = conn_impl->onUrl(at, length);
+       return conn_impl->setAndCheckCallbackStatus(std::move(status));
+     },
+     nullptr, // on_status
+-    [](http_parser* parser, const char* at, size_t length) -> int {
++    [](llhttp_t* parser, const char* at, size_t length) -> int {
+       auto* conn_impl = static_cast<ConnectionImpl*>(parser->data);
+       auto status = conn_impl->onHeaderField(at, length);
+       return conn_impl->setAndCheckCallbackStatus(std::move(status));
+     },
+-    [](http_parser* parser, const char* at, size_t length) -> int {
++    [](llhttp_t* parser, const char* at, size_t length) -> int {
+       auto* conn_impl = static_cast<ConnectionImpl*>(parser->data);
+       auto status = conn_impl->onHeaderValue(at, length);
+       return conn_impl->setAndCheckCallbackStatus(std::move(status));
+     },
+-    [](http_parser* parser) -> int {
++    [](llhttp_t* parser) -> int {
+       auto* conn_impl = static_cast<ConnectionImpl*>(parser->data);
+       auto statusor = conn_impl->onHeadersCompleteBase();
+       return conn_impl->setAndCheckCallbackStatusOr(std::move(statusor));
+     },
+-    [](http_parser* parser, const char* at, size_t length) -> int {
++    [](llhttp_t* parser, const char* at, size_t length) -> int {
+       static_cast<ConnectionImpl*>(parser->data)->bufferBody(at, length);
+       return 0;
+     },
+-    [](http_parser* parser) -> int {
++    [](llhttp_t* parser) -> int {
+       auto* conn_impl = static_cast<ConnectionImpl*>(parser->data);
+       auto status = conn_impl->onMessageCompleteBase();
+-      return conn_impl->setAndCheckCallbackStatus(std::move(status));
++      conn_impl->setAndCheckCallbackStatus(std::move(status));
++      // Always pause the parser so that the calling code can process 1 request at a time and apply
++      // back pressure. However this means that the calling code needs to detect if there is more data
++      // in the buffer and dispatch it again.
++      return HPE_PAUSED;
+     },
+-    [](http_parser* parser) -> int {
++    [](llhttp_t* parser) -> int {
+       // A 0-byte chunk header is used to signal the end of the chunked body.
+       // When this function is called, http-parser holds the size of the chunk in
+       // parser->content_length. See
+@@ -465,11 +469,15 @@ http_parser_settings ConnectionImpl::settings_{
+       static_cast<ConnectionImpl*>(parser->data)->onChunkHeader(is_final_chunk);
+       return 0;
+     },
+-    nullptr // on_chunk_complete
++    nullptr, // on_chunk_complete
++    nullptr, // on_url_complete
++    nullptr, // on_status_complete
++    nullptr, // on_header_field_complete
++    nullptr  // on_header_value_complete
+ };
+ 
+ ConnectionImpl::ConnectionImpl(Network::Connection& connection, CodecStats& stats,
+-                               const Http1Settings& settings, http_parser_type type,
++                               const Http1Settings& settings, llhttp_type_t type,
+                                uint32_t max_headers_kb, const uint32_t max_headers_count,
+                                HeaderKeyFormatterPtr&& header_key_formatter)
+     : connection_(connection), stats_(stats), codec_settings_(settings),
+@@ -483,8 +491,9 @@ ConnectionImpl::ConnectionImpl(Network::Connection& connection, CodecStats& stat
+                                []() -> void { /* TODO(adisuissa): Handle overflow watermark */ })),
+       max_headers_kb_(max_headers_kb), max_headers_count_(max_headers_count) {
+   output_buffer_->setWatermarks(connection.bufferLimit());
+-  http_parser_init(&parser_, type);
+-  parser_.allow_chunked_length = 1;
++  llhttp_init(&parser_, type, &settings_);
++  llhttp_set_lenient_chunked_length(&parser_, 1);
++  llhttp_set_lenient_headers(&parser_, 1);
+   parser_.data = this;
+ }
+ 
+@@ -581,8 +590,8 @@ Http::Status ConnectionImpl::innerDispatch(Buffer::Instance& data) {
+     return Http::okStatus();
+   }
+ 
+-  // Always unpause before dispatch.
+-  http_parser_pause(&parser_, 0);
++  // Always resume before dispatch.
++  llhttp_resume(&parser_);
+ 
+   ssize_t total_parsed = 0;
+   if (data.length() > 0) {
+@@ -600,10 +609,10 @@ Http::Status ConnectionImpl::innerDispatch(Buffer::Instance& data) {
+       }
+ 
+       total_parsed += statusor_parsed.value();
+-      if (HTTP_PARSER_ERRNO(&parser_) != HPE_OK) {
++      if (llhttp_get_errno(&parser_) != HPE_OK) {
+         // Parse errors trigger an exception in dispatchSlice so we are guaranteed to be paused at
+         // this point.
+-        ASSERT(HTTP_PARSER_ERRNO(&parser_) == HPE_PAUSED);
++        ASSERT(llhttp_get_errno(&parser_) == HPE_PAUSED || llhttp_get_errno(&parser_) == HPE_CB_HEADERS_COMPLETE);
+         break;
+       }
+     }
+@@ -627,20 +636,38 @@ Http::Status ConnectionImpl::innerDispatch(Buffer::Instance& data) {
+ 
+ Envoy::StatusOr<size_t> ConnectionImpl::dispatchSlice(const char* slice, size_t len) {
+   ASSERT(codec_status_.ok() && dispatching_);
+-  ssize_t rc = http_parser_execute(&parser_, &settings_, slice, len);
++  llhttp_errno_t err;
++  if (slice == nullptr || len == 0) {
++    err = llhttp_finish(&parser_);
++  } else {
++    err = llhttp_execute(&parser_, slice, len);
++  }
++
+   if (!codec_status_.ok()) {
+     return codec_status_;
+   }
+-  if (HTTP_PARSER_ERRNO(&parser_) != HPE_OK && HTTP_PARSER_ERRNO(&parser_) != HPE_PAUSED) {
++
++  size_t nread = len;
++  if (err != HPE_OK) {
++    nread = llhttp_get_error_pos(&parser_) - slice;
++    if (err == HPE_PAUSED_UPGRADE) {
++      err = HPE_OK;
++      llhttp_resume_after_upgrade(&parser_);
++    } else if (err == HPE_CB_HEADERS_COMPLETE) {
++      return nread;
++    }
++  }
++
++  if (err != HPE_OK && err != HPE_PAUSED) {
+     RETURN_IF_ERROR(sendProtocolError(Http1ResponseCodeDetails::get().HttpCodecError));
+     // Avoid overwriting the codec_status_ set in the callbacks.
+     ASSERT(codec_status_.ok());
+     codec_status_ = codecProtocolError(
+-        absl::StrCat("http/1.1 protocol error: ", http_errno_name(HTTP_PARSER_ERRNO(&parser_))));
++        absl::StrCat("http/1.1 protocol error: ", std::string(llhttp_errno_name(err))));
+     return codec_status_;
+   }
+ 
+-  return rc;
++  return nread;
+ }
+ 
+ Status ConnectionImpl::onHeaderField(const char* data, size_t length) {
+@@ -756,7 +783,7 @@ Envoy::StatusOr<int> ConnectionImpl::onHeadersCompleteBase() {
+   // Reject message with Http::Code::BadRequest if both Transfer-Encoding and Content-Length
+   // headers are present or if allowed by http1 codec settings and 'Transfer-Encoding'
+   // is chunked - remove Content-Length and serve request.
+-  if (parser_.uses_transfer_encoding != 0 && request_or_response_headers.ContentLength()) {
++  if (parser_.flags & F_TRANSFER_ENCODING && request_or_response_headers.ContentLength()) {
+     if ((parser_.flags & F_CHUNKED) && codec_settings_.allow_chunked_length_) {
+       request_or_response_headers.removeContentLength();
+     } else {
+@@ -781,6 +808,7 @@ Envoy::StatusOr<int> ConnectionImpl::onHeadersCompleteBase() {
+     }
+   }
+ 
++  seen_content_length_ = request_or_response_headers.ContentLength() != nullptr;
+   auto statusor = onHeadersComplete();
+   if (!statusor.ok()) {
+     RETURN_IF_ERROR(statusor.status());
+@@ -803,7 +831,7 @@ void ConnectionImpl::bufferBody(const char* data, size_t length) {
+ }
+ 
+ void ConnectionImpl::dispatchBufferedBody() {
+-  ASSERT(HTTP_PARSER_ERRNO(&parser_) == HPE_OK || HTTP_PARSER_ERRNO(&parser_) == HPE_PAUSED);
++  ASSERT(llhttp_get_errno(&parser_) == HPE_OK || llhttp_get_errno(&parser_) == HPE_PAUSED || llhttp_get_errno(&parser_) == HPE_CB_HEADERS_COMPLETE);
+   ASSERT(codec_status_.ok());
+   if (buffered_body_.length() > 0) {
+     onBody(buffered_body_);
+@@ -829,7 +857,6 @@ Status ConnectionImpl::onMessageCompleteBase() {
+     // upgrade payload will be treated as stream body.
+     ASSERT(!deferred_end_stream_headers_);
+     ENVOY_CONN_LOG(trace, "Pausing parser due to upgrade.", connection_);
+-    http_parser_pause(&parser_, 1);
+     return okStatus();
+   }
+ 
+@@ -950,7 +977,7 @@ Envoy::StatusOr<int> ServerConnectionImpl::onHeadersComplete() {
+     auto& active_request = active_request_.value();
+     auto& headers = absl::get<RequestHeaderMapPtr>(headers_or_trailers_);
+     ENVOY_CONN_LOG(trace, "Server: onHeadersComplete size={}", connection_, headers->size());
+-    const char* method_string = http_method_str(static_cast<http_method>(parser_.method));
++    const char* method_string = llhttp_method_name(static_cast<llhttp_method>(parser_.method));
+ 
+     if (!handling_upgrade_ && headers->Connection()) {
+       // If we fail to sanitize the request, return a 400 to the client
+@@ -996,7 +1023,7 @@ Envoy::StatusOr<int> ServerConnectionImpl::onHeadersComplete() {
+       // If the connection has been closed (or is closing) after decoding headers, pause the parser
+       // so we return control to the caller.
+       if (connection_.state() != Network::Connection::State::Open) {
+-        http_parser_pause(&parser_, 1);
++        return -1;
+       }
+     } else {
+       deferred_end_stream_headers_ = true;
+@@ -1065,11 +1092,6 @@ void ServerConnectionImpl::onMessageComplete() {
+     // Reset to ensure no information from one requests persists to the next.
+     headers_or_trailers_.emplace<RequestHeaderMapPtr>(nullptr);
+   }
+-
+-  // Always pause the parser so that the calling code can process 1 request at a time and apply
+-  // back pressure. However this means that the calling code needs to detect if there is more data
+-  // in the buffer and dispatch it again.
+-  http_parser_pause(&parser_, 1);
+ }
+ 
+ void ServerConnectionImpl::onResetStream(StreamResetReason reason) {
+@@ -1077,29 +1099,7 @@ void ServerConnectionImpl::onResetStream(StreamResetReason reason) {
+   active_request_.reset();
+ }
+ 
+-void ServerConnectionImpl::sendProtocolErrorOld(absl::string_view details) {
+-  if (active_request_.has_value()) {
+-    active_request_.value().response_encoder_.setDetails(details);
+-  }
+-  // We do this here because we may get a protocol error before we have a logical stream. Higher
+-  // layers can only operate on streams, so there is no coherent way to allow them to send an error
+-  // "out of band." On one hand this is kind of a hack but on the other hand it normalizes HTTP/1.1
+-  // to look more like HTTP/2 to higher layers.
+-  if (!active_request_.has_value() ||
+-      !active_request_.value().response_encoder_.startedResponse()) {
+-    Buffer::OwnedImpl bad_request_response(
+-        absl::StrCat("HTTP/1.1 ", error_code_, " ", CodeUtility::toString(error_code_),
+-                     "\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"));
+-
+-    connection_.write(bad_request_response, false);
+-  }
+-}
+-
+ Status ServerConnectionImpl::sendProtocolError(absl::string_view details) {
+-  if (!Runtime::runtimeFeatureEnabled("envoy.reloadable_features.early_errors_via_hcm")) {
+-    sendProtocolErrorOld(details);
+-    return okStatus();
+-  }
+   // We do this here because we may get a protocol error before we have a logical stream.
+   if (!active_request_.has_value()) {
+     RETURN_IF_ERROR(onMessageBeginBase());
+@@ -1174,7 +1174,7 @@ bool ClientConnectionImpl::cannotHaveBody() {
+     ASSERT(!pending_response_done_);
+     return true;
+   } else if (parser_.status_code == 204 || parser_.status_code == 304 ||
+-             (parser_.status_code >= 200 && parser_.content_length == 0 &&
++             (parser_.status_code >= 200 && (seen_content_length_ && parser_.content_length == 0) &&
+               !(parser_.flags & F_CHUNKED))) {
+     return true;
+   } else {
+@@ -1316,7 +1316,7 @@ void ClientConnectionImpl::onMessageComplete() {
+   }
+ 
+   // Pause the parser after a response is complete. Any remaining data indicates an error.
+-  http_parser_pause(&parser_, 1);
++  llhttp_pause(&parser_);
+ }
+ 
+ void ClientConnectionImpl::onResetStream(StreamResetReason reason) {
+diff --git a/source/common/http/http1/codec_impl.h b/source/common/http/http1/codec_impl.h
+index deb08526a3a..f1002a45406 100644
+--- a/source/common/http/http1/codec_impl.h
++++ b/source/common/http/http1/codec_impl.h
+@@ -1,6 +1,6 @@
+ #pragma once
+ 
+-#include <http_parser.h>
++#include <llhttp.h>
+ 
+ #include <array>
+ #include <cstdint>
+@@ -167,7 +167,7 @@ class RequestEncoderImpl : public StreamEncoderImpl, public RequestEncoder {
+ 
+ /**
+  * Base class for HTTP/1.1 client and server connections.
+- * Handles the callbacks of http_parser with its own base routine and then
++ * Handles the callbacks of llhttp with its own base routine and then
+  * virtual dispatches to its subclasses.
+  */
+ class ConnectionImpl : public virtual Connection, protected Logger::Loggable<Logger::Id::http> {
+@@ -233,7 +233,7 @@ class ConnectionImpl : public virtual Connection, protected Logger::Loggable<Log
+ 
+ protected:
+   ConnectionImpl(Network::Connection& connection, CodecStats& stats, const Http1Settings& settings,
+-                 http_parser_type type, uint32_t max_headers_kb, const uint32_t max_headers_count,
++                 llhttp_type_t type, uint32_t max_headers_kb, const uint32_t max_headers_count,
+                  HeaderKeyFormatterPtr&& header_key_formatter);
+ 
+   // The following define special return values for http_parser callbacks. See:
+@@ -274,7 +274,7 @@ class ConnectionImpl : public virtual Connection, protected Logger::Loggable<Log
+   Network::Connection& connection_;
+   CodecStats& stats_;
+   const Http1Settings codec_settings_;
+-  http_parser parser_;
++  llhttp_t parser_;
+   Buffer::Instance* current_dispatching_buffer_{};
+   Http::Code error_code_{Http::Code::BadRequest};
+   const HeaderKeyFormatterPtr header_key_formatter_;
+@@ -283,6 +283,7 @@ class ConnectionImpl : public virtual Connection, protected Logger::Loggable<Log
+   bool processing_trailers_ : 1;
+   bool handling_upgrade_ : 1;
+   bool reset_stream_called_ : 1;
++  bool seen_content_length_ : 1;
+   // Deferred end stream headers indicate that we are not going to raise headers until the full
+   // HTTP/1 message has been flushed from the parser. This allows raising an HTTP/2 style headers
+   // block with end stream set to true with no further protocol data remaining.
+@@ -441,7 +442,7 @@ class ConnectionImpl : public virtual Connection, protected Logger::Loggable<Log
+    */
+   virtual Status checkHeaderNameForUnderscores() { return okStatus(); }
+ 
+-  static http_parser_settings settings_;
++  static llhttp_settings_s settings_;
+ 
+   HeaderParsingState header_parsing_state_{HeaderParsingState::Field};
+   // Used to accumulate the HTTP message body during the current dispatch call. The accumulated body
+@@ -534,8 +535,6 @@ class ServerConnectionImpl : public ServerConnection, public ConnectionImpl {
+     }
+   }
+ 
+-  void sendProtocolErrorOld(absl::string_view details);
+-
+   void releaseOutboundResponse(const Buffer::OwnedBufferFragmentImpl* fragment);
+   void maybeAddSentinelBufferFragment(Buffer::Instance& output_buffer) override;
+   Status doFloodProtectionChecks() const;
+@@ -634,7 +633,7 @@ class ClientConnectionImpl : public ClientConnection, public ConnectionImpl {
+   // to null headers on message complete for assertion purposes.
+   absl::variant<ResponseHeaderMapPtr, ResponseTrailerMapPtr> headers_or_trailers_;
+ 
+-  // The default limit of 80 KiB is the vanilla http_parser behaviour.
++  // The default limit of 80 KiB is the vanilla llhttp behaviour.
+   static constexpr uint32_t MAX_RESPONSE_HEADERS_KB = 80;
+ };
+ 
+diff --git a/source/common/runtime/runtime_features.cc b/source/common/runtime/runtime_features.cc
+index b2d19539c37..4c4569747a5 100644
+--- a/source/common/runtime/runtime_features.cc
++++ b/source/common/runtime/runtime_features.cc
+@@ -65,7 +65,6 @@ constexpr const char* runtime_features[] = {
+     "envoy.reloadable_features.check_ocsp_policy",
+     "envoy.reloadable_features.disable_tls_inspector_injection",
+     "envoy.reloadable_features.disallow_unbounded_access_logs",
+-    "envoy.reloadable_features.early_errors_via_hcm",
+     "envoy.reloadable_features.enable_dns_cache_circuit_breakers",
+     "envoy.reloadable_features.fix_upgrade_response",
+     "envoy.reloadable_features.fix_wildcard_matching",
+diff --git a/test/common/http/http1/codec_impl_test.cc b/test/common/http/http1/codec_impl_test.cc
+index c2eb068cf3f..f574162b82f 100644
+--- a/test/common/http/http1/codec_impl_test.cc
++++ b/test/common/http/http1/codec_impl_test.cc
+@@ -930,18 +930,15 @@ TEST_F(Http1ServerConnectionImplTest, SimpleGet) {
+   EXPECT_EQ(0U, buffer.length());
+ }
+ 
+-TEST_F(Http1ServerConnectionImplTest, BadRequestNoStreamLegacy) {
+-  TestScopedRuntime scoped_runtime;
+-  Runtime::LoaderSingleton::getExisting()->mergeValues(
+-      {{"envoy.reloadable_features.early_errors_via_hcm", "false"}});
++TEST_F(Http1ServerConnectionImplTest, BadRequestStreamCreated) {
+   initialize();
+ 
+   std::string output;
+   ON_CALL(connection_, write(_, _)).WillByDefault(AddBufferToString(&output));
+ 
+   MockRequestDecoder decoder;
+-  EXPECT_CALL(callbacks_, newStream(_, _)).Times(0);
+-  EXPECT_CALL(decoder, sendLocalReply(_, _, _, _, _, _)).Times(0);
++  EXPECT_CALL(callbacks_, newStream(_, _)).WillOnce(ReturnRef(decoder));;
++  EXPECT_CALL(decoder, sendLocalReply(_, _, _, _, _, _));
+ 
+   Buffer::OwnedImpl buffer("bad");
+   auto status = codec_->dispatch(buffer);
