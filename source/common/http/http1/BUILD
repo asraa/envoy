@@ -28,7 +28,7 @@ envoy_cc_library(
     name = "codec_lib",
     srcs = ["codec_impl.cc"],
     hdrs = ["codec_impl.h"],
-    external_deps = ["llhttp"],
+    external_deps = ["http_parser"],
     deps = [
         ":codec_stats_lib",
         ":header_formatter_lib",

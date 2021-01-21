@@ -930,15 +930,18 @@ TEST_F(Http1ServerConnectionImplTest, SimpleGet) {
   EXPECT_EQ(0U, buffer.length());
 }
 
-TEST_F(Http1ServerConnectionImplTest, BadRequestStreamCreated) {
+TEST_F(Http1ServerConnectionImplTest, BadRequestNoStreamLegacy) {
+  TestScopedRuntime scoped_runtime;
+  Runtime::LoaderSingleton::getExisting()->mergeValues(
+      {{"envoy.reloadable_features.early_errors_via_hcm", "false"}});
   initialize();
 
   std::string output;
   ON_CALL(connection_, write(_, _)).WillByDefault(AddBufferToString(&output));
 
   MockRequestDecoder decoder;
-  EXPECT_CALL(callbacks_, newStream(_, _)).WillOnce(ReturnRef(decoder));;
-  EXPECT_CALL(decoder, sendLocalReply(_, _, _, _, _, _));
+  EXPECT_CALL(callbacks_, newStream(_, _)).Times(0);
+  EXPECT_CALL(decoder, sendLocalReply(_, _, _, _, _, _)).Times(0);
 
   Buffer::OwnedImpl buffer("bad");
   auto status = codec_->dispatch(buffer);
