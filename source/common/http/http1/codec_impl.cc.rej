@@ -1,0 +1,10 @@
+diff a/source/common/http/http1/codec_impl.cc b/source/common/http/http1/codec_impl.cc	(rejected hunks)
+@@ -1223,7 +1210,7 @@ Envoy::StatusOr<int> ClientConnectionImpl::onHeadersComplete() {
+       }
+     }
+ 
+-    if (strict_1xx_and_204_headers_ && (parser_.status_code < 200 || parser_.status_code == 204)) {
++    if (strict_1xx_and_204_headers_ && (parser_->statusCode() < 200 || parser_->statusCode() == 204)) {
+       if (headers->TransferEncoding()) {
+         RETURN_IF_ERROR(
+             sendProtocolError(Http1ResponseCodeDetails::get().TransferEncodingNotAllowed));
