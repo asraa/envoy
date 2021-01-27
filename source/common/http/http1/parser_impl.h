@@ -8,10 +8,10 @@ namespace Envoy {
 namespace Http {
 namespace Http1 {
 
-class LegacyHttpParserImpl : public Parser {
+class HttpParserImpl : public Parser {
 public:
-  LegacyHttpParserImpl(MessageType type, ParserCallbacks* data);
-  ~LegacyHttpParserImpl();
+  HttpParserImpl(MessageType type, ParserCallbacks* data);
+  ~HttpParserImpl();
 
   // Http1::Parser
   rcVal execute(const char* data, int len) override;
@@ -28,10 +28,10 @@ public:
   const char* errnoName() override;
   const char* errnoName(int rc) const override;
   int usesTransferEncoding() const override;
-  bool seenContentLength() const override { return true; }
-  void setSeenContentLength(bool) override {};
+  bool seenContentLength() const override;
+  void setSeenContentLength(bool val) override;
   int statusToInt(const ParserStatus code) const override;
-  int flagsChunked() const override { return 1; }
+  int flagsChunked() const override { return 1 << 3; }
 
 private:
   class Impl;

@@ -235,24 +235,6 @@ protected:
                  MessageType type, uint32_t max_headers_kb, const uint32_t max_headers_count,
                  HeaderKeyFormatterPtr&& header_key_formatter);
 
-  // The following define special return values for http_parser callbacks. See:
-  // https://github.com/nodejs/http-parser/blob/5c5b3ac62662736de9e71640a8dc16da45b32503/http_parser.h#L72
-  // These codes do not overlap with standard HTTP Status codes. They are only used for user
-  // callbacks.
-  enum class HttpParserCode {
-    // Callbacks other than on_headers_complete should return a non-zero int to indicate an error
-    // and
-    // halt execution.
-    Error = -1,
-    Success = 0,
-    // Returning '1' from on_headers_complete will tell http_parser that it should not expect a
-    // body.
-    NoBody = 1,
-    // Returning '2' from on_headers_complete will tell http_parser that it should not expect a body
-    // nor any further data on the connection.
-    NoBodyData = 2,
-  };
-
   bool resetStreamCalled() { return reset_stream_called_; }
   virtual Status onMessageBeginStatus() PURE;
   void onMessageBeginBase();
@@ -411,8 +393,8 @@ private:
    * @return A status representing success.
    */
   int onMessageComplete() override;
-  Status onMessageCompleteBaseStatus();
-  virtual void onMessageCompleteBase() PURE;
+  StatusOr<int> onMessageCompleteBaseStatus();
+  virtual int onMessageCompleteBase() PURE;
 
   /**
    * Called when accepting a chunk header.
@@ -489,7 +471,7 @@ protected:
   };
   absl::optional<ActiveRequest>& activeRequest() { return active_request_; }
   // ConnectionImpl
-  void onMessageCompleteBase() override;
+  int onMessageCompleteBase() override;
   // Add the size of the request_url to the reported header size when processing request headers.
   uint32_t getHeadersSize() override;
 
@@ -598,7 +580,7 @@ private:
   Envoy::StatusOr<int> onHeadersCompleteStatus() override;
   bool upgradeAllowed() const override;
   void onBody(Buffer::Instance& data) override;
-  void onMessageCompleteBase() override;
+  int onMessageCompleteBase() override;
   void onResetStream(StreamResetReason reason) override;
   Status sendProtocolError(absl::string_view details) override;
   void onAboveHighWatermark() override;

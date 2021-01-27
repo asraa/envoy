@@ -1,4 +1,3 @@
-
 #include "common/http/http1/legacy_parser.h"
 
 #include <http_parser.h>
@@ -57,15 +56,16 @@ public:
     };
   }
 
-  size_t execute(const char* slice, int len) {
-    return http_parser_execute(&parser_, &settings_, slice, len);
+  rcVal execute(const char* slice, int len) {
+    return {http_parser_execute(&parser_, &settings_, slice, len), HTTP_PARSER_ERRNO(&parser_)};
   }
 
   void resume() { http_parser_pause(&parser_, 0); }
 
   int pause() {
     http_parser_pause(&parser_, 1);
-    return HPE_PAUSED;
+    // http_parser pauses through http_parser_pause above.
+    return HPE_OK;
   }
 
   int getErrno() { return HTTP_PARSER_ERRNO(&parser_); }
@@ -113,7 +113,9 @@ LegacyHttpParserImpl::LegacyHttpParserImpl(MessageType type, ParserCallbacks* da
 // same compilation unit so that the destructor has a complete definition of Impl.
 LegacyHttpParserImpl::~LegacyHttpParserImpl() = default;
 
-int LegacyHttpParserImpl::execute(const char* slice, int len) { return impl_->execute(slice, len); }
+LegacyHttpParserImpl::rcVal LegacyHttpParserImpl::execute(const char* slice, int len) {
+  return impl_->execute(slice, len);
+}
 
 void LegacyHttpParserImpl::resume() { impl_->resume(); }
 
@@ -139,7 +141,26 @@ const char* LegacyHttpParserImpl::errnoName() {
   return http_errno_name(static_cast<http_errno>(impl_->getErrno()));
 }
 
+const char* LegacyHttpParserImpl::errnoName(int rc) const {
+  return http_errno_name(static_cast<http_errno>(rc));
+}
+
 int LegacyHttpParserImpl::usesTransferEncoding() const { return impl_->usesTransferEncoding(); }
+
+int LegacyHttpParserImpl::statusToInt(const ParserStatus code) const {
+  switch (code) {
+  case ParserStatus::Error:
+    return -1;
+  case ParserStatus::Success:
+    return 0;
+  case ParserStatus::NoBody:
+    return 1;
+  case ParserStatus::NoBodyData:
+    return 2;
+  case ParserStatus::Paused:
+    return 31;
+  }
+}
 
 } // namespace Http1
 } // namespace Http

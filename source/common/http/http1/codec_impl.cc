@@ -18,6 +18,7 @@
 #include "common/http/header_utility.h"
 #include "common/http/headers.h"
 #include "common/http/http1/header_formatter.h"
+#include "common/http/http1/parser_impl.h"
 #include "common/http/http1/legacy_parser.h"
 #include "common/http/utility.h"
 #include "common/runtime/runtime_features.h"
@@ -414,7 +415,8 @@ Status RequestEncoderImpl::encodeHeaders(const RequestHeaderMap& headers, bool e
 int ConnectionImpl::setAndCheckCallbackStatus(Status&& status) {
   ASSERT(codec_status_.ok());
   codec_status_ = std::move(status);
-  return codec_status_.ok() ? enumToInt(HttpParserCode::Success) : enumToInt(HttpParserCode::Error);
+  return codec_status_.ok() ? parser_->statusToInt(ParserStatus::Success)
+                            : parser_->statusToInt(ParserStatus::Error);
 }
 
 int ConnectionImpl::setAndCheckCallbackStatusOr(Envoy::StatusOr<int>&& statusor) {
@@ -423,7 +425,7 @@ int ConnectionImpl::setAndCheckCallbackStatusOr(Envoy::StatusOr<int>&& statusor)
     return statusor.value();
   } else {
     codec_status_ = std::move(statusor.status());
-    return enumToInt(HttpParserCode::Error);
+    return parser_->statusToInt(ParserStatus::Error);
   }
 }
 
@@ -538,7 +540,7 @@ Http::Status ConnectionImpl::innerDispatch(Buffer::Instance& data) {
     return Http::okStatus();
   }
 
-  // Always unpause before dispatch.
+  // Always resume before dispatch.
   parser_->resume();
 
   ssize_t total_parsed = 0;
@@ -557,10 +559,11 @@ Http::Status ConnectionImpl::innerDispatch(Buffer::Instance& data) {
       }
 
       total_parsed += statusor_parsed.value();
-      if (parser_->getErrno() != static_cast<int>(ParserStatus::Ok)) {
+      if (parser_->getErrno() != parser_->statusToInt(ParserStatus::Success)) {
         // Parse errors trigger an exception in dispatchSlice so we are guaranteed to be paused at
         // this point.
-        ASSERT(parser_->getErrno() == static_cast<int>(ParserStatus::Paused));
+        // TODO(asraa): Will this be HPE_CB_HEADERS_COMPLETE? Why?
+        ASSERT(parser_->getErrno() == parser_->statusToInt(ParserStatus::Paused));
         break;
       }
     }
@@ -584,20 +587,22 @@ Http::Status ConnectionImpl::innerDispatch(Buffer::Instance& data) {
 
 Envoy::StatusOr<size_t> ConnectionImpl::dispatchSlice(const char* slice, size_t len) {
   ASSERT(codec_status_.ok() && dispatching_);
-  ssize_t rc = parser_->execute(slice, len);
+  auto [nread, rc] = parser_->execute(slice, len);
   if (!codec_status_.ok()) {
     return codec_status_;
   }
-  if (parser_->getErrno() != static_cast<int>(ParserStatus::Ok) && parser_->getErrno() != static_cast<int>(ParserStatus::Paused)) {
+
+  if (rc != parser_->statusToInt(ParserStatus::Success) &&
+      rc != parser_->statusToInt(ParserStatus::Paused)) {
     RETURN_IF_ERROR(sendProtocolError(Http1ResponseCodeDetails::get().HttpCodecError));
     // Avoid overwriting the codec_status_ set in the callbacks.
     ASSERT(codec_status_.ok());
     codec_status_ = codecProtocolError(
-        absl::StrCat("http/1.1 protocol error: ", parser_->errnoName()));
+        absl::StrCat("http/1.1 protocol error: ", parser_->errnoName(rc)));
     return codec_status_;
   }
 
-  return rc;
+  return nread;
 }
 
 int ConnectionImpl::onHeaderField(const char* data, size_t length) {
@@ -729,7 +734,7 @@ Status ConnectionImpl::onHeadersCompleteBase() {
   // headers are present or if allowed by http1 codec settings and 'Transfer-Encoding'
   // is chunked - remove Content-Length and serve request.
   if (parser_->usesTransferEncoding() != 0 && request_or_response_headers.ContentLength()) {
-    if ((parser_->flags() & static_cast<int>(Flags::Chunked)) && codec_settings_.allow_chunked_length_) {
+    if ((parser_->flags() & parser_->flagsChunked()) && codec_settings_.allow_chunked_length_) {
       request_or_response_headers.removeContentLength();
     } else {
       error_code_ = Http::Code::BadRequest;
@@ -752,6 +757,7 @@ Status ConnectionImpl::onHeadersCompleteBase() {
       return codecProtocolError("http/1.1 protocol error: unsupported transfer encoding");
     }
   }
+  parser_->setSeenContentLength(request_or_response_headers.ContentLength() != nullptr);
 
   header_parsing_state_ = HeaderParsingState::Done;
 
@@ -771,7 +777,8 @@ int ConnectionImpl::bufferBody(const char* data, size_t length) {
 }
 
 void ConnectionImpl::dispatchBufferedBody() {
-  ASSERT(parser_->getErrno() == static_cast<int>(ParserStatus::Ok) || parser_->getErrno() == static_cast<int>(ParserStatus::Paused));
+  ASSERT(parser_->getErrno() == parser_->statusToInt(ParserStatus::Success) ||
+         parser_->getErrno() == parser_->statusToInt(ParserStatus::Paused));
   ASSERT(codec_status_.ok());
   if (buffered_body_.length() > 0) {
     onBody(buffered_body_);
@@ -789,7 +796,7 @@ int ConnectionImpl::onChunkHeader(bool is_final_chunk) {
   return 0;
 }
 
-Status ConnectionImpl::onMessageCompleteBaseStatus() {
+StatusOr<int> ConnectionImpl::onMessageCompleteBaseStatus() {
   ENVOY_CONN_LOG(trace, "message complete", connection_);
 
   dispatchBufferedBody();
@@ -799,8 +806,9 @@ Status ConnectionImpl::onMessageCompleteBaseStatus() {
     // upgrade payload will be treated as stream body.
     ASSERT(!deferred_end_stream_headers_);
     ENVOY_CONN_LOG(trace, "Pausing parser due to upgrade.", connection_);
-    parser_->pause();
-    return okStatus();
+    return parser_->pause();
+    // // parser_->pause();
+    // return okStatus();
   }
 
   // If true, this indicates we were processing trailers and must
@@ -809,8 +817,8 @@ Status ConnectionImpl::onMessageCompleteBaseStatus() {
     RETURN_IF_ERROR(completeLastHeader());
   }
 
-  onMessageCompleteBase();
-  return okStatus();
+  return onMessageCompleteBase();
+  // return okStatus();
 }
 
 void ConnectionImpl::onMessageBeginBase() {
@@ -831,8 +839,8 @@ void ConnectionImpl::onResetStreamBase(StreamResetReason reason) {
 }
 
 int ConnectionImpl::onMessageComplete() {
-  auto status = onMessageCompleteBaseStatus();
-  return setAndCheckCallbackStatus(std::move(status));
+  auto statusor = onMessageCompleteBaseStatus();
+  return setAndCheckCallbackStatusOr(std::move(statusor));
 }
 
 int ConnectionImpl::onUrl(const char* data, size_t length) {
@@ -968,14 +976,17 @@ Envoy::StatusOr<int> ServerConnectionImpl::onHeadersCompleteStatus() {
     // with message complete. This allows upper layers to behave like HTTP/2 and prevents a proxy
     // scenario where the higher layers stream through and implicitly switch to chunked transfer
     // encoding because end stream with zero body length has not yet been indicated.
-    if (parser_->flags() & static_cast<int>(Flags::Chunked) ||
+    if (parser_->flags() & parser_->flagsChunked() ||
         (parser_->contentLength() > 0 && parser_->contentLength() != ULLONG_MAX) || handling_upgrade_) {
       active_request.request_decoder_->decodeHeaders(std::move(headers), false);
 
       // If the connection has been closed (or is closing) after decoding headers, pause the parser
       // so we return control to the caller.
       if (connection_.state() != Network::Connection::State::Open) {
-        parser_->pause();
+        int rc = parser_->pause();
+        if (rc != 0) {
+          return rc;
+        }
       }
     } else {
       deferred_end_stream_headers_ = true;
@@ -1026,7 +1037,7 @@ void ServerConnectionImpl::onBody(Buffer::Instance& data) {
   }
 }
 
-void ServerConnectionImpl::onMessageCompleteBase() {
+int ServerConnectionImpl::onMessageCompleteBase() {
   ASSERT(!handling_upgrade_);
   if (active_request_.has_value()) {
     auto& active_request = active_request_.value();
@@ -1054,7 +1065,7 @@ void ServerConnectionImpl::onMessageCompleteBase() {
   // Always pause the parser so that the calling code can process 1 request at a time and apply
   // back pressure. However this means that the calling code needs to detect if there is more data
   // in the buffer and dispatch it again.
-  parser_->pause();
+  return parser_->pause();
 }
 
 void ServerConnectionImpl::onResetStream(StreamResetReason reason) {
@@ -1159,8 +1170,9 @@ bool ClientConnectionImpl::cannotHaveBody() {
     ASSERT(!pending_response_done_);
     return true;
   } else if (parser_->statusCode() == 204 || parser_->statusCode() == 304 ||
-             (parser_->statusCode() >= 200 && parser_->contentLength() == 0 &&
-              !(parser_->flags() & static_cast<int>(Flags::Chunked)))) {
+             (parser_->statusCode() >= 200 &&
+              (parser_->seenContentLength() && parser_->contentLength() == 0) &&
+              !(parser_->flags() & parser_->flagsChunked()))) {
     return true;
   } else {
     return false;
@@ -1263,11 +1275,11 @@ void ClientConnectionImpl::onBody(Buffer::Instance& data) {
   }
 }
 
-void ClientConnectionImpl::onMessageCompleteBase() {
+int ClientConnectionImpl::onMessageCompleteBase() {
   ENVOY_CONN_LOG(trace, "message complete", connection_);
   if (ignore_message_complete_for_1xx_) {
     ignore_message_complete_for_1xx_ = false;
-    return;
+    return parser_->statusToInt(ParserStatus::Success);
   }
   if (pending_response_.has_value()) {
     ASSERT(!pending_response_done_);
@@ -1295,7 +1307,7 @@ void ClientConnectionImpl::onMessageCompleteBase() {
   }
 
   // Pause the parser after a response is complete. Any remaining data indicates an error.
-  parser_->pause();
+  return parser_->pause();
 }
 
 void ClientConnectionImpl::onResetStream(StreamResetReason reason) {
