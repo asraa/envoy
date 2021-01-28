@@ -1141,6 +1141,13 @@ TEST_P(ServerInstanceImplTest, BootstrapNodeWithoutAccessLog) {
       EnvoyException, "An admin access log path is required for a listening server.");
 }
 
+// Validate that exceptions thrown in seconday cluster initialization callbacks are caught and the
+// server gracefully closes with a log message.
+TEST_P(ServerInstanceImplTest, BootstrapInvalidSecondaryClusters) {
+  EXPECT_LOG_CONTAINS("warning", "Skipping initialization of HDS cluster",
+                      initialize("test/server/test_data/server/invalid_secondary_cluster.yaml"));
+}
+
 namespace {
 void bindAndListenTcpSocket(const Network::Address::InstanceConstSharedPtr& address,
                             const Network::Socket::OptionsSharedPtr& options) {
