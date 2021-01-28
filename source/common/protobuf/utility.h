@@ -131,14 +131,17 @@ uint64_t fractionalPercentDenominatorToInt(
 
 namespace Envoy {
 
+/**
+ * Exception class for rejecting a deprecated major version.
+ */
+class DeprecatedMajorVersionException : public EnvoyException {
+public:
+  DeprecatedMajorVersionException(const std::string& message) : EnvoyException(message) {}
+};
+
 class MissingFieldException : public EnvoyException {
 public:
   MissingFieldException(const std::string& field_name, const Protobuf::Message& message);
-};
-
-class TypeUtil {
-public:
-  static absl::string_view typeUrlToDescriptorFullName(absl::string_view type_url);
 };
 
 class RepeatedPtrUtil {
@@ -163,17 +166,17 @@ public:
   // Based on MessageUtil::hash() defined below.
   template <class ProtoType>
   static std::size_t hash(const Protobuf::RepeatedPtrField<ProtoType>& source) {
-    // Use Protobuf::io::CodedOutputStream to force deterministic serialization, so that the same
-    // message doesn't hash to different values.
     std::string text;
     {
-      // For memory safety, the StringOutputStream needs to be destroyed before
-      // we read the string.
-      Protobuf::io::StringOutputStream string_stream(&text);
-      Protobuf::io::CodedOutputStream coded_stream(&string_stream);
-      coded_stream.SetSerializationDeterministic(true);
+      Protobuf::TextFormat::Printer printer;
+      printer.SetExpandAny(true);
+      printer.SetUseFieldNumber(true);
+      printer.SetSingleLineMode(true);
+      printer.SetHideUnknownFields(true);
       for (const auto& message : source) {
-        message.SerializeToCodedStream(&coded_stream);
+        std::string text_message;
+        printer.PrintToString(message, &text_message);
+        absl::StrAppend(&text, text_message);
       }
     }
     return HashUtil::xxHash64(text);
@@ -369,6 +372,14 @@ public:
   };
 
   /**
+   * Invoke when a version upgrade (e.g. v2 -> v3) is detected. This may warn or throw
+   * depending on where we are in the major version deprecation cycle.
+   * @param desc description of upgrade to include in warning or exception.
+   * @param reject should a DeprecatedMajorVersionException be thrown on failure?
+   */
+  static void onVersionUpgradeDeprecation(absl::string_view desc, bool reject = true);
+
+  /**
    * Obtain a string field from a protobuf message dynamically.
    *
    * @param message message to extract from.
@@ -494,6 +505,14 @@ public:
    * @return wrapped string.
    */
   static ProtobufWkt::Value stringValue(const std::string& str);
+
+  /**
+   * Wrap optional std::string into ProtobufWkt::Value string value.
+   * If the argument contains a null optional, return ProtobufWkt::NULL_VALUE.
+   * @param str string to be wrapped.
+   * @return wrapped string.
+   */
+  static ProtobufWkt::Value optionalStringValue(const absl::optional<std::string>& str);
 
   /**
    * Wrap boolean into ProtobufWkt::Value boolean value.

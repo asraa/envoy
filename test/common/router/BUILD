@@ -1,5 +1,7 @@
 load(
     "//bazel:envoy_build_system.bzl",
+    "envoy_benchmark_test",
+    "envoy_cc_benchmark_binary",
     "envoy_cc_fuzz_test",
     "envoy_cc_test",
     "envoy_cc_test_binary",
@@ -38,6 +40,21 @@ envoy_cc_test_library(
         "//test/test_common:utility_lib",
         "@envoy_api//envoy/config/route/v3:pkg_cc_proto",
         "@envoy_api//envoy/type/v3:pkg_cc_proto",
+    ],
+)
+
+envoy_cc_benchmark_binary(
+    name = "config_impl_headermap_benchmark_test",
+    srcs = ["config_impl_headermap_benchmark_test.cc"],
+    external_deps = [
+        "benchmark",
+    ],
+    deps = [
+        "//source/common/http:header_map_lib",
+        "//source/common/router:config_lib",
+        "//test/mocks/server:server_mocks",
+        "//test/test_common:utility_lib",
+        "@envoy_api//envoy/config/route/v3:pkg_cc_proto",
     ],
 )
 
@@ -293,6 +310,7 @@ envoy_cc_test(
         "@envoy_api//envoy/extensions/transport_sockets/tls/v3:pkg_cc_proto",
         "@envoy_api//envoy/extensions/upstreams/http/http/v3:pkg_cc_proto",
         "@envoy_api//envoy/extensions/upstreams/http/tcp/v3:pkg_cc_proto",
+        "@envoy_api//envoy/extensions/upstreams/tcp/generic/v3:pkg_cc_proto",
         "@envoy_api//envoy/type/v3:pkg_cc_proto",
     ],
 )
@@ -385,4 +403,26 @@ envoy_proto_library(
         "//test/fuzz:common_proto",
         "@envoy_api//envoy/extensions/filters/http/router/v3:pkg",
     ],
+)
+
+envoy_cc_benchmark_binary(
+    name = "config_impl_speed_test",
+    srcs = ["config_impl_speed_test.cc"],
+    external_deps = [
+        "benchmark",
+    ],
+    deps = [
+        "//source/common/common:assert_lib",
+        "//source/common/router:config_lib",
+        "//test/mocks/server:instance_mocks",
+        "//test/mocks/stream_info:stream_info_mocks",
+        "//test/test_common:test_runtime_lib",
+        "//test/test_common:utility_lib",
+        "@envoy_api//envoy/config/route/v3:pkg_cc_proto",
+    ],
+)
+
+envoy_benchmark_test(
+    name = "config_impl_benchmark_test",
+    benchmark_binary = "config_impl_speed_test",
 )
