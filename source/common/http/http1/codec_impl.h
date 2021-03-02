@@ -236,8 +236,8 @@ protected:
                  HeaderKeyFormatterPtr&& header_key_formatter);
 
   bool resetStreamCalled() { return reset_stream_called_; }
-  virtual Status onMessageBeginStatus() PURE;
-  void onMessageBeginBase();
+  virtual Status onMessageBeginBase() PURE;
+  Status onMessageBeginStatus();
 
   Status onHeadersCompleteBase();
 
@@ -341,7 +341,6 @@ private:
    * @param length supplies the length.
    */
   int onUrl(const char* data, size_t length) override;
-  virtual int onUrlBase(const char* data, size_t length) PURE;
   virtual Status onUrlStatus(const char* data, size_t length) PURE;
 
   /**
@@ -393,7 +392,7 @@ private:
    * @return A status representing success.
    */
   int onMessageComplete() override;
-  StatusOr<int> onMessageCompleteBaseStatus();
+  StatusOr<int> onMessageCompleteStatus();
   virtual int onMessageCompleteBase() PURE;
 
   /**
@@ -489,8 +488,7 @@ private:
 
   // ConnectionImpl
   void onEncodeComplete() override;
-  Status onMessageBeginStatus() override;
-  int onUrlBase(const char* data, size_t length) override;
+  Status onMessageBeginBase() override;
   Status onUrlStatus(const char* data, size_t length) override;
   Envoy::StatusOr<int> onHeadersCompleteStatus() override;
   // If upgrade behavior is not allowed, the HCM will have sanitized the headers out.
@@ -574,8 +572,7 @@ private:
   // ConnectionImpl
   Http::Status dispatch(Buffer::Instance& data) override;
   void onEncodeComplete() override {}
-  Status onMessageBeginStatus() override { return okStatus(); }
-  int onUrlBase(const char*, size_t) override { NOT_IMPLEMENTED_GCOVR_EXCL_LINE; }
+  Status onMessageBeginBase() override { return okStatus(); }
   Status onUrlStatus(const char*, size_t) override { NOT_IMPLEMENTED_GCOVR_EXCL_LINE; }
   Envoy::StatusOr<int> onHeadersCompleteStatus() override;
   bool upgradeAllowed() const override;

@@ -316,7 +316,6 @@ void ConnectionImpl::copyToBuffer(const char* data, uint64_t length) {
 }
 
 int ConnectionImpl::onMessageBegin() {
-  onMessageBeginBase();
   auto status = onMessageBeginStatus();
   return setAndCheckCallbackStatus(std::move(status));
 }
@@ -796,7 +795,7 @@ int ConnectionImpl::onChunkHeader(bool is_final_chunk) {
   return 0;
 }
 
-StatusOr<int> ConnectionImpl::onMessageCompleteBaseStatus() {
+StatusOr<int> ConnectionImpl::onMessageCompleteStatus() {
   ENVOY_CONN_LOG(trace, "message complete", connection_);
 
   dispatchBufferedBody();
@@ -807,8 +806,6 @@ StatusOr<int> ConnectionImpl::onMessageCompleteBaseStatus() {
     ASSERT(!deferred_end_stream_headers_);
     ENVOY_CONN_LOG(trace, "Pausing parser due to upgrade.", connection_);
     return parser_->pause();
-    // // parser_->pause();
-    // return okStatus();
   }
 
   // If true, this indicates we were processing trailers and must
@@ -818,10 +815,9 @@ StatusOr<int> ConnectionImpl::onMessageCompleteBaseStatus() {
   }
 
   return onMessageCompleteBase();
-  // return okStatus();
 }
 
-void ConnectionImpl::onMessageBeginBase() {
+Status ConnectionImpl::onMessageBeginStatus() {
   ENVOY_CONN_LOG(trace, "message begin", connection_);
   // Make sure that if HTTP/1.0 and HTTP/1.1 requests share a connection Envoy correctly sets
   // protocol for each request. Envoy defaults to 1.1 but sets the protocol to 1.0 where applicable
@@ -830,6 +826,7 @@ void ConnectionImpl::onMessageBeginBase() {
   processing_trailers_ = false;
   header_parsing_state_ = HeaderParsingState::Field;
   allocHeaders();
+  return onMessageBeginBase();
 }
 
 void ConnectionImpl::onResetStreamBase(StreamResetReason reason) {
@@ -839,12 +836,13 @@ void ConnectionImpl::onResetStreamBase(StreamResetReason reason) {
 }
 
 int ConnectionImpl::onMessageComplete() {
-  auto statusor = onMessageCompleteBaseStatus();
+  auto statusor = onMessageCompleteStatus();
   return setAndCheckCallbackStatusOr(std::move(statusor));
 }
 
 int ConnectionImpl::onUrl(const char* data, size_t length) {
-  return onUrlBase(data, length);
+  auto status = onUrlStatus(data, length);
+  return setAndCheckCallbackStatus(std::move(status));
 }
 
 ServerConnectionImpl::ServerConnectionImpl(
@@ -996,7 +994,7 @@ Envoy::StatusOr<int> ServerConnectionImpl::onHeadersCompleteStatus() {
   return handling_upgrade_ ? 2 : 0;
 }
 
-Status ServerConnectionImpl::onMessageBeginStatus() {
+Status ServerConnectionImpl::onMessageBeginBase() {
   if (!resetStreamCalled()) {
     ASSERT(!active_request_.has_value());
     active_request_.emplace(*this, header_key_formatter_.get());
@@ -1012,11 +1010,6 @@ Status ServerConnectionImpl::onMessageBeginStatus() {
     RETURN_IF_ERROR(doFloodProtectionChecks());
   }
   return okStatus();
-}
-
-int ServerConnectionImpl::onUrlBase(const char* data, size_t length) {
-  auto status = onUrlStatus(data, length);
-  return setAndCheckCallbackStatus(std::move(status));
 }
 
 Status ServerConnectionImpl::onUrlStatus(const char* data, size_t length) {
