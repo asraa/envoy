@@ -669,7 +669,7 @@ int ConnectionImpl::onHeadersComplete() {
   return setAndCheckCallbackStatusOr(std::move(statusor));
 }
 
-Status ConnectionImpl::onHeadersCompleteBase() {
+StatusOr<int> ConnectionImpl::onHeadersCompleteStatus() {
   ASSERT(!processing_trailers_);
   ASSERT(dispatching_);
   ENVOY_CONN_LOG(trace, "onHeadersCompleteBase", connection_);
@@ -758,9 +758,15 @@ Status ConnectionImpl::onHeadersCompleteBase() {
   }
   parser_->setSeenContentLength(request_or_response_headers.ContentLength() != nullptr);
 
+  auto statusor = onHeadersCompleteBase();
+  if (!statusor.ok()) {
+    RETURN_IF_ERROR(statusor.status());
+  }
+
   header_parsing_state_ = HeaderParsingState::Done;
 
-  return okStatus();
+  // Returning 2 informs http_parser to not expect a body or further data on this connection.
+  return handling_upgrade_ ? 2 : statusor.value();
 }
 
 int ConnectionImpl::bufferBody(const char* data, size_t length) {
@@ -926,9 +932,7 @@ Status ServerConnectionImpl::handlePath(RequestHeaderMap& headers, unsigned int 
   return okStatus();
 }
 
-Envoy::StatusOr<int> ServerConnectionImpl::onHeadersCompleteStatus() {
-  RETURN_IF_ERROR(onHeadersCompleteBase());
-
+Envoy::StatusOr<int> ServerConnectionImpl::onHeadersCompleteBase() {
   // Handle the case where response happens prior to request complete. It's up to upper layer code
   // to disconnect the connection but we shouldn't fire any more events since it doesn't make
   // sense.
@@ -991,7 +995,7 @@ Envoy::StatusOr<int> ServerConnectionImpl::onHeadersCompleteStatus() {
     }
   }
 
-  return handling_upgrade_ ? 2 : 0;
+  return 0;
 }
 
 Status ServerConnectionImpl::onMessageBeginBase() {
@@ -1184,10 +1188,8 @@ RequestEncoder& ClientConnectionImpl::newStream(ResponseDecoder& response_decode
   return pending_response_.value().encoder_;
 }
 
-Envoy::StatusOr<int> ClientConnectionImpl::onHeadersCompleteStatus() {
+Envoy::StatusOr<int> ClientConnectionImpl::onHeadersCompleteBase() {
   ENVOY_CONN_LOG(trace, "status_code {}", connection_, parser_->statusCode());
-
-  RETURN_IF_ERROR(onHeadersCompleteBase());
 
   // Handle the case where the client is closing a kept alive connection (by sending a 408
   // with a 'Connection: close' header). In this case we just let response flush out followed
@@ -1249,8 +1251,7 @@ Envoy::StatusOr<int> ClientConnectionImpl::onHeadersCompleteStatus() {
 
   // Here we deal with cases where the response cannot have a body by returning 1, but http_parser
   // does not deal with it for us.
-  const auto cannotHaveBodyRc = cannotHaveBody() ? 1 : 0;
-  return handling_upgrade_ ? 2 : cannotHaveBodyRc;
+  return cannotHaveBody() ? 1 : 0;
 }
 
 bool ClientConnectionImpl::upgradeAllowed() const {

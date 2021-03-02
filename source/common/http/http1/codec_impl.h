@@ -239,7 +239,7 @@ protected:
   virtual Status onMessageBeginBase() PURE;
   Status onMessageBeginStatus();
 
-  Status onHeadersCompleteBase();
+  StatusOr<int> onHeadersCompleteStatus();
 
   /**
    * Get memory used to represent HTTP headers or trailers currently being parsed.
@@ -368,7 +368,7 @@ private:
    * @return An error status or an integer representing 0 if no error, 1 if there should be no body.
    */
   int onHeadersComplete() override;
-  virtual Envoy::StatusOr<int> onHeadersCompleteStatus() PURE;
+  virtual Envoy::StatusOr<int> onHeadersCompleteBase() PURE;
 
   /**
    * Called to see if upgrade transition is allowed.
@@ -490,7 +490,7 @@ private:
   void onEncodeComplete() override;
   Status onMessageBeginBase() override;
   Status onUrlStatus(const char* data, size_t length) override;
-  Envoy::StatusOr<int> onHeadersCompleteStatus() override;
+  Envoy::StatusOr<int> onHeadersCompleteBase() override;
   // If upgrade behavior is not allowed, the HCM will have sanitized the headers out.
   bool upgradeAllowed() const override { return true; }
   void onBody(Buffer::Instance& data) override;
@@ -574,7 +574,7 @@ private:
   void onEncodeComplete() override {}
   Status onMessageBeginBase() override { return okStatus(); }
   Status onUrlStatus(const char*, size_t) override { NOT_IMPLEMENTED_GCOVR_EXCL_LINE; }
-  Envoy::StatusOr<int> onHeadersCompleteStatus() override;
+  Envoy::StatusOr<int> onHeadersCompleteBase() override;
   bool upgradeAllowed() const override;
   void onBody(Buffer::Instance& data) override;
   int onMessageCompleteBase() override;
