@@ -16,7 +16,7 @@ public:
   // Http1::Parser
   rcVal execute(const char* data, int len) override;
   void resume() override;
-  int pause() override;
+  ParserStatus pause() override;
   int getErrno() override;
   int statusCode() const override;
   int httpMajor() const override;

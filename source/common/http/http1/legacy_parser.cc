@@ -52,7 +52,7 @@ public:
           const bool is_final_chunk = (parser->content_length == 0);
           return static_cast<ParserCallbacks*>(parser->data)->onChunkHeader(is_final_chunk);
         },
-        nullptr  // TODO(dereka) onChunkComplete
+        nullptr // TODO(dereka) onChunkComplete
     };
   }
 
@@ -62,10 +62,10 @@ public:
 
   void resume() { http_parser_pause(&parser_, 0); }
 
-  int pause() {
+  ParserStatus pause() {
     http_parser_pause(&parser_, 1);
     // http_parser pauses through http_parser_pause above.
-    return HPE_OK;
+    return ParserStatus::Success;
   }
 
   int getErrno() { return HTTP_PARSER_ERRNO(&parser_); }
@@ -119,7 +119,7 @@ LegacyHttpParserImpl::rcVal LegacyHttpParserImpl::execute(const char* slice, int
 
 void LegacyHttpParserImpl::resume() { impl_->resume(); }
 
-int LegacyHttpParserImpl::pause() { return impl_->pause(); }
+ParserStatus LegacyHttpParserImpl::pause() { return impl_->pause(); }
 
 int LegacyHttpParserImpl::getErrno() { return impl_->getErrno(); }
 
@@ -148,6 +148,8 @@ const char* LegacyHttpParserImpl::errnoName(int rc) const {
 int LegacyHttpParserImpl::usesTransferEncoding() const { return impl_->usesTransferEncoding(); }
 
 int LegacyHttpParserImpl::statusToInt(const ParserStatus code) const {
+  // See
+  // https://github.com/nodejs/http-parser/blob/5c5b3ac62662736de9e71640a8dc16da45b32503/http_parser.h#L72.
   switch (code) {
   case ParserStatus::Error:
     return -1;

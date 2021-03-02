@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 
+#include "envoy/common/scope_tracker.h"
 #include "envoy/config/core/v3/protocol.pb.h"
 #include "envoy/http/codec.h"
 #include "envoy/network/connection.h"
@@ -76,7 +77,7 @@ public:
 protected:
   StreamEncoderImpl(ConnectionImpl& connection, HeaderKeyFormatter* header_key_formatter);
   void encodeHeadersBase(const RequestOrResponseHeaderMap& headers, absl::optional<uint64_t> status,
-                         bool end_stream);
+                         bool end_stream, bool bodiless_request);
   void encodeTrailersBase(const HeaderMap& headers);
 
   static const std::string CRLF;
@@ -87,6 +88,7 @@ protected:
   bool disable_chunk_encoding_ : 1;
   bool chunk_encoding_ : 1;
   bool connect_request_ : 1;
+  bool is_tcp_tunneling_ : 1;
   bool is_response_to_head_request_ : 1;
   bool is_response_to_connect_request_ : 1;
 
@@ -158,6 +160,7 @@ public:
   // Http::RequestEncoder
   Status encodeHeaders(const RequestHeaderMap& headers, bool end_stream) override;
   void encodeTrailers(const RequestTrailerMap& trailers) override { encodeTrailersBase(trailers); }
+  void enableTcpTunneling() override { is_tcp_tunneling_ = true; }
 
 private:
   bool upgrade_request_{};
@@ -169,7 +172,10 @@ private:
  * Handles the callbacks of http_parser with its own base routine and then
  * virtual dispatches to its subclasses.
  */
-class ConnectionImpl : public virtual Connection, protected Logger::Loggable<Logger::Id::http>, public ParserCallbacks {
+class ConnectionImpl : public virtual Connection,
+                       protected Logger::Loggable<Logger::Id::http>,
+                       public ParserCallbacks,
+                       public ScopeTrackedObject {
 public:
   /**
    * @return Network::Connection& the backing network connection.
@@ -223,23 +229,26 @@ public:
 
   bool strict1xxAnd204Headers() { return strict_1xx_and_204_headers_; }
 
-  int setAndCheckCallbackStatus(Status&& status);
-  int setAndCheckCallbackStatusOr(Envoy::StatusOr<int>&& statusor);
-
   // Codec errors found in callbacks are overridden within the http_parser library. This holds those
   // errors to propagate them through to dispatch() where we can handle the error.
   Envoy::Http::Status codec_status_;
+
+  // ScopeTrackedObject
+  void dumpState(std::ostream& os, int indent_level) const override;
 
 protected:
   ConnectionImpl(Network::Connection& connection, CodecStats& stats, const Http1Settings& settings,
                  MessageType type, uint32_t max_headers_kb, const uint32_t max_headers_count,
                  HeaderKeyFormatterPtr&& header_key_formatter);
 
+  int setAndCheckCallbackStatus(Status&& status);
+  int setAndCheckCallbackStatusOr(Envoy::StatusOr<ParserStatus>&& statusor);
+
   bool resetStreamCalled() { return reset_stream_called_; }
   virtual Status onMessageBeginBase() PURE;
   Status onMessageBeginStatus();
 
-  StatusOr<int> onHeadersCompleteStatus();
+  StatusOr<ParserStatus> onHeadersCompleteStatus();
 
   /**
    * Get memory used to represent HTTP headers or trailers currently being parsed.
@@ -277,6 +286,17 @@ protected:
 
 private:
   enum class HeaderParsingState { Field, Value, Done };
+  friend std::ostream& operator<<(std::ostream& os, HeaderParsingState parsing_state) {
+    switch (parsing_state) {
+    case ConnectionImpl::HeaderParsingState::Field:
+      return os << "Field";
+    case ConnectionImpl::HeaderParsingState::Value:
+      return os << "Value";
+    case ConnectionImpl::HeaderParsingState::Done:
+      return os << "Done";
+    }
+    return os;
+  }
 
   virtual HeaderMap& headersOrTrailers() PURE;
   virtual RequestOrResponseHeaderMap& requestOrResponseHeaders() PURE;
@@ -365,10 +385,10 @@ private:
    * Called when headers are complete. A base routine happens first then a virtual dispatch is
    * invoked. Note that this only applies to headers and NOT trailers. End of
    * trailers are signaled via onMessageCompleteBase().
-   * @return An error status or an integer representing 0 if no error, 1 if there should be no body.
+   * @return An error status or a ParserStatus.
    */
   int onHeadersComplete() override;
-  virtual Envoy::StatusOr<int> onHeadersCompleteBase() PURE;
+  virtual Envoy::StatusOr<ParserStatus> onHeadersCompleteBase() PURE;
 
   /**
    * Called to see if upgrade transition is allowed.
@@ -392,8 +412,8 @@ private:
    * @return A status representing success.
    */
   int onMessageComplete() override;
-  StatusOr<int> onMessageCompleteStatus();
-  virtual int onMessageCompleteBase() PURE;
+  StatusOr<ParserStatus> onMessageCompleteStatus();
+  virtual ParserStatus onMessageCompleteBase() PURE;
 
   /**
    * Called when accepting a chunk header.
@@ -428,6 +448,11 @@ private:
    * @return A status representing whether the request is rejected.
    */
   virtual Status checkHeaderNameForUnderscores() { return okStatus(); }
+
+  /**
+   * Additional state to dump on crash.
+   */
+  virtual void dumpAdditionalState(std::ostream& os, int indent_level) const PURE;
 
   HeaderParsingState header_parsing_state_{HeaderParsingState::Field};
   // Used to accumulate the HTTP message body during the current dispatch call. The accumulated body
@@ -470,7 +495,7 @@ protected:
   };
   absl::optional<ActiveRequest>& activeRequest() { return active_request_; }
   // ConnectionImpl
-  int onMessageCompleteBase() override;
+  ParserStatus onMessageCompleteBase() override;
   // Add the size of the request_url to the reported header size when processing request headers.
   uint32_t getHeadersSize() override;
 
@@ -490,7 +515,7 @@ private:
   void onEncodeComplete() override;
   Status onMessageBeginBase() override;
   Status onUrlStatus(const char* data, size_t length) override;
-  Envoy::StatusOr<int> onHeadersCompleteBase() override;
+  Envoy::StatusOr<ParserStatus> onHeadersCompleteBase() override;
   // If upgrade behavior is not allowed, the HCM will have sanitized the headers out.
   bool upgradeAllowed() const override { return true; }
   void onBody(Buffer::Instance& data) override;
@@ -519,8 +544,7 @@ private:
       headers_or_trailers_.emplace<RequestTrailerMapPtr>(RequestTrailerMapImpl::create());
     }
   }
-
-  void sendProtocolErrorOld(absl::string_view details);
+  void dumpAdditionalState(std::ostream& os, int indent_level) const override;
 
   void releaseOutboundResponse(const Buffer::OwnedBufferFragmentImpl* fragment);
   void maybeAddSentinelBufferFragment(Buffer::Instance& output_buffer) override;
@@ -574,10 +598,10 @@ private:
   void onEncodeComplete() override {}
   Status onMessageBeginBase() override { return okStatus(); }
   Status onUrlStatus(const char*, size_t) override { NOT_IMPLEMENTED_GCOVR_EXCL_LINE; }
-  Envoy::StatusOr<int> onHeadersCompleteBase() override;
+  Envoy::StatusOr<ParserStatus> onHeadersCompleteBase() override;
   bool upgradeAllowed() const override;
   void onBody(Buffer::Instance& data) override;
-  int onMessageCompleteBase() override;
+  ParserStatus onMessageCompleteBase() override;
   void onResetStream(StreamResetReason reason) override;
   Status sendProtocolError(absl::string_view details) override;
   void onAboveHighWatermark() override;
@@ -603,6 +627,7 @@ private:
       headers_or_trailers_.emplace<ResponseTrailerMapPtr>(ResponseTrailerMapImpl::create());
     }
   }
+  void dumpAdditionalState(std::ostream& os, int indent_level) const override;
 
   absl::optional<PendingResponse> pending_response_;
   // TODO(mattklein123): The following bool tracks whether a pending response is complete before

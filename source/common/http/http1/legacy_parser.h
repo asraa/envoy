@@ -16,7 +16,7 @@ public:
   // Http1::Parser
   rcVal execute(const char* data, int len) override;
   void resume() override;
-  int pause() override;
+  ParserStatus pause() override;
   int getErrno() override;
   int statusCode() const override;
   int httpMajor() const override;
@@ -29,7 +29,7 @@ public:
   const char* errnoName(int rc) const override;
   int usesTransferEncoding() const override;
   bool seenContentLength() const override { return true; }
-  void setSeenContentLength(bool) override {};
+  void setSeenContentLength(bool) override{};
   int statusToInt(const ParserStatus code) const override;
   int flagsChunked() const override { return 1; }
 

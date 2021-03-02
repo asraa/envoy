@@ -83,14 +83,12 @@ public:
 
   void resume() { llhttp_resume(&parser_); }
 
-  int pause() {
+  ParserStatus pause() {
     // llhttp pauses by returning HPE_PAUSED. llhttp_pause cannot be called through user callbacks.
-    return HPE_PAUSED;
+    return ParserStatus::Paused;
   }
 
-  int getErrno() {
-    return llhttp_get_errno(&parser_);
-  }
+  int getErrno() { return llhttp_get_errno(&parser_); }
 
   int statusCode() const { return parser_.status_code; }
 
@@ -145,7 +143,7 @@ HttpParserImpl::rcVal HttpParserImpl::execute(const char* slice, int len) {
 
 void HttpParserImpl::resume() { impl_->resume(); }
 
-int HttpParserImpl::pause() { return impl_->pause(); }
+ParserStatus HttpParserImpl::pause() { return impl_->pause(); }
 
 int HttpParserImpl::getErrno() { return impl_->getErrno(); }
 
@@ -177,6 +175,8 @@ bool HttpParserImpl::seenContentLength() const { return impl_->seenContentLength
 void HttpParserImpl::setSeenContentLength(bool val) { impl_->setSeenContentLength(val); }
 
 int HttpParserImpl::statusToInt(const ParserStatus code) const {
+  // See
+  // https://github.com/nodejs/node/blob/5c5d044de028956e4c165b1b4fc465947e44a748/deps/llhttp/include/llhttp.h#L245.
   switch (code) {
   case ParserStatus::Error:
     return -1;
@@ -190,7 +190,6 @@ int HttpParserImpl::statusToInt(const ParserStatus code) const {
     return 21;
   }
 }
-
 
 } // namespace Http1
 } // namespace Http

@@ -111,6 +111,13 @@ public:
   static bool matchHeaders(const HeaderMap& request_headers, const HeaderData& config_header);
 
   /**
+   * Validates the provided scheme is valid (either http or https)
+   * @param scheme the scheme to validate
+   * @return bool true if the scheme is valid.
+   */
+  static bool schemeIsValid(const absl::string_view scheme);
+
+  /**
    * Validates that a header value is valid, according to RFC 7230, section 3.2.
    * http://tools.ietf.org/html/rfc7230#section-3.2
    * @return bool true if the header values are valid, according to the aforementioned RFC.
@@ -142,6 +149,8 @@ public:
    */
   static bool isConnectResponse(const RequestHeaderMap* request_headers,
                                 const ResponseHeaderMap& response_headers);
+
+  static bool requestShouldHaveNoBody(const RequestHeaderMap& headers);
 
   /**
    * Add headers from one HeaderMap to another
@@ -193,6 +202,13 @@ public:
    * may not be removed.
    */
   static bool isRemovableHeader(absl::string_view header);
+
+  /**
+   * Returns true if a header may be safely modified without causing additional
+   * problems. Currently header names beginning with ":" and the "host" header
+   * may not be modified.
+   */
+  static bool isModifiableHeader(absl::string_view header);
 };
 } // namespace Http
 } // namespace Envoy

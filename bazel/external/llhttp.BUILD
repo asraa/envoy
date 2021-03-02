@@ -7,8 +7,8 @@ cc_library(
         "src/http.c",
         "src/llhttp.c",
     ],
-    defines = ["LLHTTP_STRICT_MODE"],
     hdrs = ["include/llhttp.h"],
+    defines = ["LLHTTP_STRICT_MODE"],
     includes = ["include"],
     visibility = ["//visibility:public"],
 )

@@ -35,6 +35,7 @@ envoy_cc_library(
         ":parser_impl",
         ":parser_interface",
         "//include/envoy/buffer:buffer_interface",
+        "//include/envoy/common:scope_tracker_interface",
         "//include/envoy/http:codec_interface",
         "//include/envoy/http:header_map_interface",
         "//include/envoy/network:connection_interface",
@@ -42,6 +43,7 @@ envoy_cc_library(
         "//source/common/buffer:watermark_buffer_lib",
         "//source/common/common:assert_lib",
         "//source/common/common:cleanup_lib",
+        "//source/common/common:dump_state_utils",
         "//source/common/common:statusor_lib",
         "//source/common/common:utility_lib",
         "//source/common/grpc:common_lib",
@@ -93,7 +95,7 @@ envoy_cc_library(
     deps = [
         ":parser_interface",
         "//source/common/common:assert_lib",
-    ]
+    ],
 )
 
 envoy_cc_library(
@@ -104,5 +106,5 @@ envoy_cc_library(
     deps = [
         ":parser_interface",
         "//source/common/common:assert_lib",
-    ]
+    ],
 )
